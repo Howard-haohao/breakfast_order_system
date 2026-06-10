@@ -167,8 +167,13 @@ async function upsertCartItem(userId: string, menuItemId: number, qty: number) {
 const app = new Elysia()
   .use(
     cors({
-      origin: allowedOrigins,
+      origin: [
+        'http://localhost:5173', 
+        'http://localhost:5174', 
+        'https://breakfast-order-system-1.onrender.com'
+      ],
       credentials: true,
+      allowedHeaders: ['Content-Type', 'Authorization'],
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     }),
   )
@@ -625,7 +630,11 @@ const app = new Elysia()
       }),
     },
   )
-  .listen(PORT);
-
-console.log(`Speedy Breakfast backend listening on http://${app.server?.hostname}:${app.server?.port}`);
-console.log(`Swagger docs available at http://${app.server?.hostname}:${app.server?.port}/docs`);
+// 使用 Render 自動分配的 PORT (通常是 10000)，並強制綁定在 0.0.0.0
+  .listen({
+    port: process.env.PORT || 3000,
+    hostname: '0.0.0.0' // 允許雲端外部連線
+  }, (server) => {
+    console.log(`Elysia 伺服器已啟動於 http://${server.hostname}:${server.port}`);
+    console.log(`API 文件請瀏覽 http://localhost:${server.port}/docs`);
+  });
