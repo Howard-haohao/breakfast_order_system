@@ -224,7 +224,7 @@ export default function App() {
     try {
       await authActions.signIn.social({
         provider: 'google',
-        callbackURL: globalThis.location.origin,
+        callbackURL: window.location.origin,
       });
     } catch (error) {
       setAccessError(error instanceof Error ? error.message : '登入失敗');
