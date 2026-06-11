@@ -1,4 +1,8 @@
-export const API_BASE_URL = 'http://localhost:3000';
+const envApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim().replace(/\/+$/, '');
+const fallbackApiBaseUrl =
+  window.location.hostname === 'localhost' ? 'http://localhost:3000' : window.location.origin;
+
+export const API_BASE_URL = envApiBaseUrl || fallbackApiBaseUrl;
 export const WS_BASE_URL = API_BASE_URL.replace(/^http/, 'ws');
 
 type JsonValue = Record<string, unknown> | unknown[] | null;

@@ -5,6 +5,7 @@ import { Elysia, t } from 'elysia';
 import { auth } from './auth';
 import { db } from './db';
 import { cartItems, menuItems, orderItems, orders } from './db/schema';
+import { allowedOrigins } from './runtime';
 
 type CurrentSession = NonNullable<Awaited<ReturnType<typeof auth.api.getSession>>>;
 type AccessRole = 'customer' | 'staff' | 'manager';
@@ -22,10 +23,6 @@ type SnapshotItem = {
 };
 type ResponseSet = { status?: number | string };
 
-const PORT = Number(process.env.PORT ?? 3000);
-const allowedOrigins = [process.env.API_ALLOWED_ORIGIN, process.env.FRONTEND_URL]
-  .filter((value): value is string => Boolean(value))
-  .concat('http://localhost:5173');
 const staffEmails = parseEmailList(process.env.STAFF_EMAILS);
 const managerEmails = parseEmailList(process.env.MANAGER_EMAILS);
 
@@ -167,10 +164,7 @@ async function upsertCartItem(userId: string, menuItemId: number, qty: number) {
 const app = new Elysia()
   .use(
     cors({
-      origin: [
-        'http://localhost:5173',  
-        'https://breakfast-order-system-1.onrender.com'
-      ],
+      origin: allowedOrigins,
       credentials: true,
       allowedHeaders: ['Content-Type', 'Authorization'],
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
