@@ -221,14 +221,14 @@ export default function App() {
   }, [access]);
 
   const handleLogin = async () => {
-    try {
-      await authActions.signIn.social({
-        provider: 'google',
-        callbackURL: window.location.origin,
-      });
-    } catch (error) {
-      setAccessError(error instanceof Error ? error.message : '登入失敗');
-    }
+    // 宣告 currentDomain 並抓取當下的網址
+    const currentDomain = window.location.origin; 
+
+    await authClient.signIn.social({
+      provider: "google",
+      callbackURL: currentDomain, // 成功時：回到當前網域
+      errorCallbackURL: currentDomain // 失敗時：同樣強制留在當前網域
+    });
   };
 
   const handleLogout = async () => {
