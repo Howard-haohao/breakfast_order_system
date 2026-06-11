@@ -171,7 +171,8 @@ const app = new Elysia()
     }),
   )
   .use(swagger({ path: '/docs' }))
-  .mount(auth.handler)
+  .all('/api/auth', ({ request }) => auth.handler(request))
+  .all('/api/auth/*', ({ request }) => auth.handler(request))
   .get('/health', () => ({
     status: 'ok',
     message: 'Speedy Breakfast backend is running.',
