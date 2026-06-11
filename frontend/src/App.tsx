@@ -61,6 +61,13 @@ type ActiveOrder = {
   total: number;
   status: string;
   submittedAt: string | null;
+  items: Array<{
+    id: number;
+    qty: number;
+    snapshotItem: {
+      name: string;
+    };
+  }>;
 };
 
 type OrderStatusState = {
@@ -947,9 +954,19 @@ function KitchenView() {
               </div>
 
               <div className="mt-5 grid gap-3 rounded-3xl bg-slate-50 p-4 text-sm text-slate-600 md:grid-cols-2">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.25em] text-slate-400">車手 ID</p>
-                  <p className="mt-2 font-semibold text-slate-900">{order.userId}</p>
+                <div className="md:col-span-2">
+                  <p className="text-xs uppercase tracking-[0.25em] text-slate-400">商品項目</p>
+                  <div className="mt-2 space-y-2">
+                    {order.items.length > 0 ? (
+                      order.items.map((item) => (
+                        <p key={item.id} className="font-semibold text-slate-900">
+                          {item.snapshotItem.name} x {item.qty}
+                        </p>
+                      ))
+                    ) : (
+                      <p className="text-sm text-slate-500">未提供商品資料</p>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <p className="text-xs uppercase tracking-[0.25em] text-slate-400">金額</p>

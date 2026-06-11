@@ -21,6 +21,13 @@ type SnapshotItem = {
   imageUrl?: string | null;
   category?: string;
 };
+type ActiveKitchenOrder = typeof orders.$inferSelect & {
+  items: Array<{
+    id: number;
+    qty: number;
+    snapshotItem: SnapshotItem;
+  }>;
+};
 type ResponseSet = { status?: number | string };
 
 const staffEmails = parseEmailList(process.env.STAFF_EMAILS);
@@ -428,9 +435,38 @@ const app = new Elysia()
       .where(inArray(orders.status, ['submitted', 'PREPARING']))
       .orderBy(desc(orders.createdAt));
 
+    const activeOrderIds = activeOrders.map((order) => order.id);
+    const activeOrderItems =
+      activeOrderIds.length > 0
+        ? await db
+            .select()
+            .from(orderItems)
+            .where(inArray(orderItems.orderId, activeOrderIds))
+            .orderBy(orderItems.id)
+        : [];
+
+    const itemsByOrderId = activeOrderItems.reduce<Map<number, ActiveKitchenOrder['items']>>(
+      (acc, item) => {
+        const currentItems = acc.get(item.orderId) ?? [];
+        currentItems.push({
+          id: item.id,
+          qty: item.qty,
+          snapshotItem: item.snapshotItem as SnapshotItem,
+        });
+        acc.set(item.orderId, currentItems);
+        return acc;
+      },
+      new Map(),
+    );
+
+    const kitchenOrders: ActiveKitchenOrder[] = activeOrders.map((order) => ({
+      ...order,
+      items: itemsByOrderId.get(order.id) ?? [],
+    }));
+
     return {
       message: '取得 KDS 訂單成功',
-      data: activeOrders,
+      data: kitchenOrders,
     };
   })
   .put(
