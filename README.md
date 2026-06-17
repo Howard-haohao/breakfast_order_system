@@ -152,14 +152,14 @@ MANAGER_EMAILS=owner@example.com
 後端依賴：
 
 ```powershell
-cd "C:\Users\wendy\Desktop\早餐店 final_project"
+cd <project-root>
 bun install
 ```
 
 前端依賴：
 
 ```powershell
-cd "C:\Users\wendy\Desktop\早餐店 final_project\frontend"
+cd <project-root>/frontend
 npm install
 ```
 
@@ -195,7 +195,7 @@ VITE_API_BASE_URL=http://localhost:3000
 目前專案的 `drizzle/` 目錄沒有 Drizzle Kit 的 `meta/_journal.json`，因此不要用 `npx drizzle-kit migrate` 套這次分類修正。請使用專案提供的 Neon HTTP 腳本：
 
 ```powershell
-cd "C:\Users\wendy\Desktop\早餐店 final_project"
+cd <project-root>
 node scripts\apply_menu_category_constraints.js
 ```
 
@@ -226,7 +226,7 @@ bun scripts\apply_menu_category_constraints.js
 如需重置本機測試資料：
 
 ```powershell
-cd "C:\Users\wendy\Desktop\早餐店 final_project"
+cd <project-root>
 bun run src\db\seed.ts
 ```
 
@@ -235,14 +235,14 @@ bun run src\db\seed.ts
 啟動後端：
 
 ```powershell
-cd "C:\Users\wendy\Desktop\早餐店 final_project"
+cd <project-root>
 bun run src\index.ts
 ```
 
 啟動前端：
 
 ```powershell
-cd "C:\Users\wendy\Desktop\早餐店 final_project\frontend"
+cd <project-root>/frontend
 npm run dev
 ```
 
@@ -257,21 +257,21 @@ npm run dev
 後端 TypeScript 檢查：
 
 ```powershell
-cd "C:\Users\wendy\Desktop\早餐店 final_project"
+cd <project-root>
 cmd /c .\node_modules\.bin\tsc
 ```
 
 前端 TypeScript 檢查：
 
 ```powershell
-cd "C:\Users\wendy\Desktop\早餐店 final_project\frontend"
+cd <project-root>/frontend
 cmd /c .\node_modules\.bin\tsc -b
 ```
 
 前端正式 build：
 
 ```powershell
-cd "C:\Users\wendy\Desktop\早餐店 final_project\frontend"
+cd <project-root>/frontend
 npm run build
 ```
 
