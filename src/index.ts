@@ -15,6 +15,9 @@ type CartResponseItem = {
   qty: number;
   item: typeof menuItems.$inferSelect;
 };
+const menuCategories = ['麵食', '中式餐點', '西式餐點', '飲品'] as const;
+type MenuCategory = (typeof menuCategories)[number];
+
 type SnapshotItem = {
   name: string;
   price: number;
@@ -27,6 +30,14 @@ type ActiveKitchenOrder = typeof orders.$inferSelect & {
     qty: number;
     snapshotItem: SnapshotItem;
   }>;
+};
+type AdminOrderHistoryItem = {
+  id: number;
+  qty: number;
+  snapshotItem: SnapshotItem;
+};
+type AdminOrderHistoryRecord = typeof orders.$inferSelect & {
+  items: AdminOrderHistoryItem[];
 };
 type ResponseSet = { status?: number | string };
 
@@ -60,6 +71,63 @@ function normalizeOptionalText(value?: string | null) {
   return trimmed ? trimmed : null;
 }
 
+function isMenuCategory(value: string): value is MenuCategory {
+  return (menuCategories as readonly string[]).includes(value);
+}
+
+function normalizeSalesCategory(value?: string | null): MenuCategory {
+  if (value && isMenuCategory(value)) {
+    return value;
+  }
+
+  if (value === '吐司' || value === '漢堡' || value === '三明治') {
+    return '西式餐點';
+  }
+  if (value === '飲料') {
+    return '飲品';
+  }
+  if (value === '麵類') {
+    return '麵食';
+  }
+  return '中式餐點';
+}
+
+function getReportDateRange(dateValue: string | null) {
+  const fallback = new Date();
+  const match = dateValue?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const selected = match
+    ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+    : new Date(fallback.getFullYear(), fallback.getMonth(), fallback.getDate());
+
+  const start = new Date(selected);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+
+  return { start, end, date: formatReportDate(start) };
+}
+function clampHistoryDays(value: string | null) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return 30;
+  }
+  return Math.min(90, Math.max(1, Math.trunc(parsed)));
+}
+
+function getHistoryDateRange(days: number) {
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+
+  const start = new Date(end);
+  start.setDate(start.getDate() - days + 1);
+  start.setHours(0, 0, 0, 0);
+
+  return { start, end };
+}
+
+function formatReportDate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
 async function getCurrentSession(request: Request) {
   return auth.api.getSession({
     headers: request.headers,
@@ -514,66 +582,248 @@ const app = new Elysia()
       return { message: '沒有權限', data: null };
     }
 
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(startOfDay);
-    endOfDay.setDate(endOfDay.getDate() + 1);
+    const { start, end, date } = getReportDateRange(new URL(request.url).searchParams.get('date'));
 
-    const todaysOrders = await db
+    const dailyOrders = await db
       .select()
       .from(orders)
-      .where(and(gte(orders.createdAt, startOfDay), lt(orders.createdAt, endOfDay)))
+      .where(and(gte(orders.createdAt, start), lt(orders.createdAt, end)))
       .orderBy(desc(orders.createdAt));
 
-    const totalRevenue = todaysOrders.reduce((sum, order) => sum + order.total, 0);
-    const statusBreakdown = todaysOrders.reduce<Record<string, number>>((acc, order) => {
+    const totalRevenue = dailyOrders.reduce((sum, order) => sum + order.total, 0);
+    const statusBreakdown = dailyOrders.reduce<Record<string, number>>((acc, order) => {
       acc[order.status] = (acc[order.status] ?? 0) + 1;
       return acc;
     }, {});
 
-    const orderIds = todaysOrders.map((order) => order.id);
-    const todaysOrderItems =
+    const orderIds = dailyOrders.map((order) => order.id);
+    const dailyOrderItems =
       orderIds.length > 0
-        ? await db.select().from(orderItems).where(inArray(orderItems.orderId, orderIds))
+        ? await db
+            .select()
+            .from(orderItems)
+            .where(inArray(orderItems.orderId, orderIds))
+            .orderBy(orderItems.id)
         : [];
+
+    const dailyMenuIds = [...new Set(dailyOrderItems.map((item) => item.menuItemId))];
+    const dailyMenuItems =
+      dailyMenuIds.length > 0
+        ? await db.select().from(menuItems).where(inArray(menuItems.id, dailyMenuIds))
+        : [];
+    const menuCategoryById = new Map(dailyMenuItems.map((item) => [item.id, item.category]));
 
     const itemStats = new Map<
       string,
-      { name: string; qty: number; revenue: number; imageUrl?: string | null }
+      { name: string; category: MenuCategory; qty: number; revenue: number; imageUrl?: string | null }
     >();
+    const categoryStats = new Map<
+      MenuCategory,
+      {
+        category: MenuCategory;
+        totalQty: number;
+        totalRevenue: number;
+        items: Array<{ name: string; qty: number; revenue: number; imageUrl?: string | null }>;
+      }
+    >(
+      menuCategories.map((category) => [
+        category,
+        {
+          category,
+          totalQty: 0,
+          totalRevenue: 0,
+          items: [],
+        },
+      ]),
+    );
+    const itemsByOrderId = new Map<number, AdminOrderHistoryItem[]>();
 
-    for (const row of todaysOrderItems) {
+    for (const row of dailyOrderItems) {
       const snapshot = row.snapshotItem as SnapshotItem;
       const name = snapshot.name ?? `餐點 ${row.menuItemId}`;
       const price = snapshot.price ?? 0;
-      const current = itemStats.get(name);
+      const category = normalizeSalesCategory(menuCategoryById.get(row.menuItemId) ?? snapshot.category);
+      const revenue = price * row.qty;
+      const itemKey = `${category}:${name}`;
+
+      const current = itemStats.get(itemKey);
       if (current) {
         current.qty += row.qty;
-        current.revenue += price * row.qty;
+        current.revenue += revenue;
       } else {
-        itemStats.set(name, {
+        itemStats.set(itemKey, {
           name,
+          category,
           qty: row.qty,
-          revenue: price * row.qty,
+          revenue,
           imageUrl: snapshot.imageUrl,
         });
       }
+
+      const categoryStat = categoryStats.get(category);
+      if (categoryStat) {
+        categoryStat.totalQty += row.qty;
+        categoryStat.totalRevenue += revenue;
+      }
+
+      const currentOrderItems = itemsByOrderId.get(row.orderId) ?? [];
+      currentOrderItems.push({
+        id: row.id,
+        qty: row.qty,
+        snapshotItem: {
+          ...snapshot,
+          category,
+        },
+      });
+      itemsByOrderId.set(row.orderId, currentOrderItems);
     }
 
     const topItems = [...itemStats.values()]
       .sort((left, right) => right.qty - left.qty || right.revenue - left.revenue)
       .slice(0, 5);
 
+    for (const item of itemStats.values()) {
+      const categoryStat = categoryStats.get(item.category);
+      categoryStat?.items.push({
+        name: item.name,
+        qty: item.qty,
+        revenue: item.revenue,
+        imageUrl: item.imageUrl,
+      });
+    }
+
+    const categorySales = [...categoryStats.values()].map((category) => ({
+      ...category,
+      items: category.items.sort((left, right) => right.qty - left.qty || right.revenue - left.revenue),
+    }));
+
+    const adminOrders: AdminOrderHistoryRecord[] = dailyOrders.map((order) => ({
+      ...order,
+      items: itemsByOrderId.get(order.id) ?? [],
+    }));
+
     return {
-      message: '取得每日營業額成功',
+      message: '取得單日營業額成功',
       data: {
-        date: startOfDay.toISOString().slice(0, 10),
+        date,
         totalRevenue,
-        orderCount: todaysOrders.length,
-        averageOrderValue: todaysOrders.length === 0 ? 0 : Math.round(totalRevenue / todaysOrders.length),
+        orderCount: dailyOrders.length,
+        averageOrderValue: dailyOrders.length === 0 ? 0 : Math.round(totalRevenue / dailyOrders.length),
         statusBreakdown,
         topItems,
+        categorySales,
+        orders: adminOrders,
       },
+    };
+  })
+  .get('/api/admin/revenue/history', async ({ request, set }) => {
+    const accessSession = await requireManagerSession(request, set);
+    if (!accessSession) {
+      return { message: '瘝?甈?', data: [] };
+    }
+
+    const days = clampHistoryDays(new URL(request.url).searchParams.get('days'));
+    const { start, end } = getHistoryDateRange(days);
+
+    const periodOrders = await db
+      .select()
+      .from(orders)
+      .where(and(gte(orders.createdAt, start), lt(orders.createdAt, end)))
+      .orderBy(desc(orders.createdAt));
+
+    const dailyReports = new Map<
+      string,
+      {
+        date: string;
+        totalRevenue: number;
+        orderCount: number;
+        averageOrderValue: number;
+        statusBreakdown: Record<string, number>;
+      }
+    >();
+
+    for (let index = 0; index < days; index += 1) {
+      const date = new Date(start);
+      date.setDate(start.getDate() + index);
+      const key = formatReportDate(date);
+      dailyReports.set(key, {
+        date: key,
+        totalRevenue: 0,
+        orderCount: 0,
+        averageOrderValue: 0,
+        statusBreakdown: {},
+      });
+    }
+
+    for (const order of periodOrders) {
+      const key = formatReportDate(order.createdAt);
+      const report = dailyReports.get(key);
+      if (!report) {
+        continue;
+      }
+      report.totalRevenue += order.total;
+      report.orderCount += 1;
+      report.statusBreakdown[order.status] = (report.statusBreakdown[order.status] ?? 0) + 1;
+    }
+
+    const history = [...dailyReports.values()].map((report) => ({
+      ...report,
+      averageOrderValue:
+        report.orderCount === 0 ? 0 : Math.round(report.totalRevenue / report.orderCount),
+    }));
+
+    return {
+      message: '取得歷史營收成功',
+      data: history,
+    };
+  })
+  .get('/api/admin/orders/history', async ({ request, set }) => {
+    const accessSession = await requireManagerSession(request, set);
+    if (!accessSession) {
+      return { message: '瘝?甈?', data: [] };
+    }
+
+    const days = clampHistoryDays(new URL(request.url).searchParams.get('days'));
+    const { start, end } = getHistoryDateRange(days);
+
+    const historyOrders = await db
+      .select()
+      .from(orders)
+      .where(and(gte(orders.createdAt, start), lt(orders.createdAt, end)))
+      .orderBy(desc(orders.createdAt));
+
+    const orderIds = historyOrders.map((order) => order.id);
+    const historyItems =
+      orderIds.length > 0
+        ? await db
+            .select()
+            .from(orderItems)
+            .where(inArray(orderItems.orderId, orderIds))
+            .orderBy(orderItems.id)
+        : [];
+
+    const itemsByOrderId = historyItems.reduce<Map<number, AdminOrderHistoryItem[]>>(
+      (acc, item) => {
+        const currentItems = acc.get(item.orderId) ?? [];
+        currentItems.push({
+          id: item.id,
+          qty: item.qty,
+          snapshotItem: item.snapshotItem as SnapshotItem,
+        });
+        acc.set(item.orderId, currentItems);
+        return acc;
+      },
+      new Map(),
+    );
+
+    const adminOrders: AdminOrderHistoryRecord[] = historyOrders.map((order) => ({
+      ...order,
+      items: itemsByOrderId.get(order.id) ?? [],
+    }));
+
+    return {
+      message: '取得歷史訂單成功',
+      data: adminOrders,
     };
   })
   .get('/api/admin/menu', async ({ request, set }) => {
@@ -593,12 +843,17 @@ const app = new Elysia()
         return { message: '沒有權限', data: null };
       }
 
+      const category = body.category.trim();
+      if (!isMenuCategory(category)) {
+        set.status = 400;
+        return { message: '分類只能是麵食、中式餐點、西式餐點或飲品', data: null };
+      }
       const [created] = await db
         .insert(menuItems)
         .values({
           name: body.name.trim(),
           price: body.price,
-          category: body.category.trim(),
+          category,
           description: normalizeOptionalText(body.description),
           imageUrl: normalizeOptionalText(body.imageUrl),
           isActive: body.isActive,
@@ -633,12 +888,17 @@ const app = new Elysia()
         return { message: '菜單 ID 格式錯誤', data: null };
       }
 
+      const category = body.category.trim();
+      if (!isMenuCategory(category)) {
+        set.status = 400;
+        return { message: '分類只能是麵食、中式餐點、西式餐點或飲品', data: null };
+      }
       const [updated] = await db
         .update(menuItems)
         .set({
           name: body.name.trim(),
           price: body.price,
-          category: body.category.trim(),
+          category,
           description: normalizeOptionalText(body.description),
           imageUrl: normalizeOptionalText(body.imageUrl),
           isActive: body.isActive,
@@ -668,3 +928,11 @@ const app = new Elysia()
     console.log(`Elysia 伺服器已啟動於 http://${server.hostname}:${server.port}`);
     console.log(`API 文件請瀏覽 http://localhost:${server.port}/docs`);
   });
+
+
+
+
+
+
+
+

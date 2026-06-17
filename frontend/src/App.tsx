@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import {
   CheckCircle2,
   ChefHat,
@@ -29,6 +29,10 @@ import OrderTimer from './components/OrderTimer';
 type SessionData = ReturnType<typeof authClient.useSession>['data'];
 
 type Portal = 'customer' | 'kitchen' | 'admin';
+
+type MenuCategory = '麵食' | '中式餐點' | '西式餐點' | '飲品';
+
+const menuCategories: MenuCategory[] = ['麵食', '中式餐點', '西式餐點', '飲品'];
 
 type MenuItem = {
   id: number;
@@ -88,17 +92,45 @@ type AccessState = {
   canManage: boolean;
 };
 
+type ProductSalesItem = {
+  name: string;
+  qty: number;
+  revenue: number;
+  imageUrl?: string | null;
+};
+
+type CategorySalesGroup = {
+  category: MenuCategory;
+  totalQty: number;
+  totalRevenue: number;
+  items: ProductSalesItem[];
+};
+
 type RevenueReport = {
   date: string;
   totalRevenue: number;
   orderCount: number;
   averageOrderValue: number;
   statusBreakdown: Record<string, number>;
-  topItems: Array<{
-    name: string;
+  topItems: ProductSalesItem[];
+  categorySales: CategorySalesGroup[];
+  orders: AdminHistoryOrder[];
+};
+
+type AdminHistoryOrder = {
+  id: number;
+  userId: string;
+  total: number;
+  status: string;
+  createdAt: string;
+  submittedAt: string | null;
+  items: Array<{
+    id: number;
     qty: number;
-    revenue: number;
-    imageUrl?: string | null;
+    snapshotItem: {
+      name: string;
+      price?: number;
+    };
   }>;
 };
 
@@ -123,7 +155,7 @@ const authActions = authClient as typeof authClient & AuthClientActions;
 const emptyMenuForm: MenuFormState = {
   name: '',
   price: '',
-  category: '',
+  category: '麵食',
   description: '',
   imageUrl: '',
   isActive: true,
@@ -135,6 +167,13 @@ function formatCurrency(value: number) {
     currency: 'TWD',
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+function formatDateInputValue(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function buildStatusClass(status: OrderStatusState['status']) {
@@ -281,7 +320,7 @@ export default function App() {
               早餐店營運平台
             </div>
             <h1 className="text-4xl font-black leading-tight text-slate-900 md:text-6xl">
-              先登入，再進入點餐、KDS 與店長管理後台。
+              先登入，再點餐
             </h1>
             <p className="max-w-xl text-lg leading-8 text-slate-600">
               顧客登入後才能開始點餐與保留購物車。店家帳號登入後，才會看到 KDS 工作台與店長專屬管理介面。
@@ -360,7 +399,7 @@ export default function App() {
             </div>
             <div>
               <p className="text-xs uppercase tracking-[0.35em] text-slate-400">Breakfast OS</p>
-              <h1 className="text-xl font-black">極速晨食</h1>
+              <h1 className="text-xl font-black">賈伯斯早餐店</h1>
             </div>
           </div>
 
@@ -402,7 +441,7 @@ export default function App() {
           </nav>
 
           <div className="mt-8 space-y-3 rounded-3xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-slate-300">
-            <p className="font-semibold text-white">環境說明</p>
+            <p className="font-semibold text-white">介面說明</p>
             <p>顧客只會看到點餐介面。</p>
             <p>店員白名單可使用 KDS。</p>
             <p>店長白名單可使用營運後台。</p>
@@ -416,7 +455,7 @@ export default function App() {
               className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2 text-sm text-slate-200 transition hover:border-slate-500 hover:bg-slate-900"
             >
               <RefreshCw size={14} />
-              重整權限
+              重整
             </button>
             <button
               onClick={() => {
@@ -1015,16 +1054,17 @@ function KitchenView() {
 
 function AdminView() {
   const [report, setReport] = useState<RevenueReport | null>(null);
+  const [selectedDate, setSelectedDate] = useState(formatDateInputValue());
   const [menu, setMenu] = useState<MenuItem[]>([]);
   const [form, setForm] = useState<MenuFormState>(emptyMenuForm);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [message, setMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  const loadDashboard = async () => {
+  const loadDashboard = async (date = selectedDate) => {
     try {
       const [reportResponse, menuResponse] = await Promise.all([
-        apiRequest<{ message: string; data: RevenueReport }>('/api/admin/revenue'),
+        apiRequest<{ message: string; data: RevenueReport }>(`/api/admin/revenue?date=${date}`),
         apiRequest<{ message: string; data: MenuItem[] }>('/api/admin/menu'),
       ]);
       setReport(reportResponse.data);
@@ -1037,6 +1077,11 @@ function AdminView() {
   useEffect(() => {
     void loadDashboard();
   }, []);
+
+  const changeReportDate = (date: string) => {
+    setSelectedDate(date);
+    void loadDashboard(date);
+  };
 
   const resetForm = () => {
     setEditingId(null);
@@ -1134,13 +1179,13 @@ function AdminView() {
       <section className="grid gap-4 xl:grid-cols-4">
         <StatCard
           icon={DollarSign}
-          label="今日營收"
+          label="單日營收"
           value={report ? formatCurrency(report.totalRevenue) : '--'}
           tone="emerald"
         />
         <StatCard
           icon={ListOrdered}
-          label="今日訂單數"
+          label="單日訂單數"
           value={report ? String(report.orderCount) : '--'}
           tone="sky"
         />
@@ -1163,7 +1208,7 @@ function AdminView() {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-xl font-black text-slate-900">熱銷排行榜</h3>
-              <p className="mt-2 text-sm text-slate-500">依今日銷量與營收統整最熱門品項。</p>
+              <p className="mt-2 text-sm text-slate-500">依查詢日期的銷量與營收統整最熱門品項。</p>
             </div>
             <button
               onClick={() => {
@@ -1200,7 +1245,7 @@ function AdminView() {
               ))
             ) : (
               <div className="rounded-3xl border border-dashed border-slate-200 px-4 py-10 text-center text-slate-400">
-                今天還沒有可統計的熱銷資料。
+                這一天還沒有可統計的熱銷資料。
               </div>
             )}
           </div>
@@ -1259,14 +1304,20 @@ function AdminView() {
               </label>
               <label className="grid gap-2 text-sm font-semibold text-slate-700">
                 分類
-                <input
-                value={form.category}
-                onChange={(event) => {
-                  const v = event.currentTarget.value;
-                  setForm((current) => ({ ...current, category: v }));
-                }}
+                <select
+                  value={form.category}
+                  onChange={(event) => {
+                    const v = event.currentTarget.value;
+                    setForm((current) => ({ ...current, category: v }));
+                  }}
                   className="rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-slate-400"
-                />
+                >
+                  {menuCategories.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
             <label className="grid gap-2 text-sm font-semibold text-slate-700">
@@ -1277,8 +1328,6 @@ function AdminView() {
                   const v = event.currentTarget.value;
                   setForm((current) => ({ ...current, imageUrl: v }));
                 }}
-                className="rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-slate-400"
-                placeholder="https://..."
               />
             </label>
             <label className="grid gap-2 text-sm font-semibold text-slate-700">
@@ -1318,10 +1367,107 @@ function AdminView() {
       </div>
 
       <section className="rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h3 className="text-xl font-black text-slate-900">單日業績與商品銷售</h3>
+            <p className="mt-2 text-sm text-slate-500">選擇日期後查看當日營收、分類商品銷量與訂單明細。</p>
+          </div>
+          <label className="grid gap-2 text-sm font-semibold text-slate-700 sm:min-w-52">
+            查詢日期
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(event) => changeReportDate(event.currentTarget.value)}
+              className="rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-slate-400"
+            />
+          </label>
+        </div>
+
+        <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_1fr]">
+          <div>
+            <h4 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-400">分類商品銷售</h4>
+            <div className="mt-4 grid gap-4">
+              {report?.categorySales.map((group) => (
+                <div key={group.category} className="rounded-3xl bg-slate-50 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-black text-slate-900">{group.category}</p>
+                      <p className="mt-1 text-sm text-slate-500">銷量 {group.totalQty} 份</p>
+                    </div>
+                    <p className="font-black text-emerald-700">{formatCurrency(group.totalRevenue)}</p>
+                  </div>
+
+                  <div className="mt-4 space-y-2">
+                    {group.items.length ? (
+                      group.items.map((item) => (
+                        <div key={item.name} className="flex items-center justify-between gap-3 rounded-2xl bg-white px-3 py-2 text-sm">
+                          <span className="min-w-0 truncate font-semibold text-slate-800">{item.name}</span>
+                          <span className="shrink-0 text-slate-500">
+                            {item.qty} 份 / {formatCurrency(item.revenue)}
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="rounded-2xl border border-dashed border-slate-200 px-3 py-4 text-center text-sm text-slate-400">
+                        此分類當日沒有銷售紀錄。
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )) ?? (
+                <div className="rounded-3xl border border-dashed border-slate-200 px-4 py-10 text-center text-slate-400">
+                  尚無商品銷售資料。
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <h4 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-400">當日訂單</h4>
+            <div className="mt-4 max-h-[34rem] space-y-3 overflow-y-auto pr-1">
+              {report?.orders.length ? (
+                report.orders.map((order) => (
+                  <article key={order.id} className="rounded-3xl border border-slate-200 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Order</p>
+                        <h5 className="mt-1 text-lg font-black text-slate-900">#{order.id}</h5>
+                      </div>
+                      <div className="text-left sm:text-right">
+                        <p className="font-black text-slate-900">{formatCurrency(order.total)}</p>
+                        <p className="mt-1 text-xs font-semibold text-slate-500">{order.status}</p>
+                      </div>
+                    </div>
+                    <p className="mt-3 text-sm text-slate-500">
+                      訂單時間：{new Date(order.createdAt).toLocaleString()}
+                    </p>
+                    <div className="mt-3 space-y-1 text-sm font-semibold text-slate-700">
+                      {order.items.length ? (
+                        order.items.map((item) => (
+                          <p key={item.id}>
+                            {item.snapshotItem.name} x {item.qty}
+                          </p>
+                        ))
+                      ) : (
+                        <p className="text-slate-400">未提供商品資料</p>
+                      )}
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="rounded-3xl border border-dashed border-slate-200 px-4 py-10 text-center text-slate-400">
+                  這一天沒有訂單資料。
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+      <section className="rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-xl font-black text-slate-900">菜單管理</h3>
-            <p className="mt-2 text-sm text-slate-500">可直接上架、下架與編輯現有餐點。</p>
+            <p className="mt-2 text-sm text-slate-500">可直接上、下架與編輯現有餐點。</p>
           </div>
         </div>
 
