@@ -1,221 +1,303 @@
 # 早餐店點餐系統
 
-一個前後端分離的早餐店點餐系統，提供顧客點餐、購物車、訂單追蹤、廚房 KDS 與老闆後台管理功能。專案採用 React + Vite 建立前端，Elysia + Better Auth 建立後端，資料儲存使用 PostgreSQL 與 Drizzle ORM，並支援 Render 雲端部署。
+這是一個前後端分離的早餐店點餐系統，包含顧客點餐、購物車、訂單狀態追蹤、廚房 KDS、店長後台、菜單管理與單日營收分析。前端使用 React + Vite，後端使用 Elysia + Bun，登入使用 Better Auth + Google OAuth，資料庫使用 Neon PostgreSQL + Drizzle ORM。
 
-## 專案功能
+## 功能總覽
 
-- 顧客端：瀏覽菜單、加入購物車、送出訂單、查看歷史訂單
-- 廚房端：即時查看待處理訂單、更新製作狀態
-- 管理端：查看每日營收、熱銷商品、維護菜單上下架
-- 登入驗證：Google OAuth 登入
-- 即時通知：透過 WebSocket 推送訂單狀態與 KDS 廣播
+- 顧客端：瀏覽菜單、加入購物車、送出訂單、查看歷史訂單。
+- 廚房端：KDS 工作台可查看待處理訂單、餐點品項與製作時間，並更新訂單狀態。
+- 店長後台：查看單日營收、單日訂單數、平均客單價、熱銷排行榜、分類商品銷售紀錄與當日訂單明細。
+- 菜單管理：新增、編輯、上下架商品，商品分類固定為 `麵食`、`中式餐點`、`西式餐點`、`飲品`。
+- 權限控管：透過 `STAFF_EMAILS` 與 `MANAGER_EMAILS` 控制 KDS 與店長後台權限。
+- 即時通知：透過 WebSocket 推送新訂單與訂單狀態更新。
 
-## 技術棧
+## 技術架構
 
-### 前端
+### Frontend
 
-- `React 19`
-- `TypeScript`
-- `Vite`
-- `Tailwind CSS 3`
-- `lucide-react`
-- `better-auth/react`
+- React 19
+- TypeScript
+- Vite
+- Tailwind CSS 3
+- lucide-react
+- better-auth/react
 
-### 後端
+### Backend
 
-- `Bun`
-- `TypeScript`
-- `Elysia`
-- `@elysiajs/cors`
-- `@elysiajs/swagger`
-- `better-auth`
-- `drizzle-orm`
-- `@neondatabase/serverless`
-- `dotenv`
+- Bun
+- TypeScript
+- Elysia
+- Better Auth
+- Drizzle ORM
+- Neon PostgreSQL
+- @neondatabase/serverless
+- dotenv
 
-### 資料庫與部署
+## 專案結構
 
-- `PostgreSQL`
-- `Neon`
-- `Render`
-
-## 套件分析
-
-### 前端主要套件
-
-- `react`、`react-dom`：建立 SPA 介面
-- `better-auth`：前端 session 狀態與社群登入流程
-- `lucide-react`：介面圖示
-- `vite`：前端建置與開發伺服器
-- `tailwindcss`、`postcss`、`autoprefixer`：樣式系統
-- `eslint`、`typescript-eslint`：程式品質檢查
-
-### 後端主要套件
-
-- `elysia`：建立 HTTP API 與 WebSocket 路由
-- `@elysiajs/cors`：處理跨網域請求
-- `@elysiajs/swagger`：產生 API 文件頁
-- `better-auth`：Google OAuth、session、帳號系統
-- `drizzle-orm`：資料存取與 schema 定義
-- `drizzle-kit`：資料庫 migration 工具
-- `@neondatabase/serverless`：連接 Neon PostgreSQL
-- `dotenv`：讀取環境變數
-- `tsx`：TypeScript 執行輔助工具
-
-## 系統架構
-
-- `frontend/`：React 前端專案
-- `src/index.ts`：Elysia API 與 WebSocket 入口
-- `src/auth.ts`：Better Auth 設定
-- `src/runtime.ts`：環境變數與 origin 設定整理
-- `src/db/schema.ts`：資料表 schema
-- `src/db/index.ts`：Drizzle + Neon 連線設定
+```text
+.
+├── frontend/                    # React 前端
+│   ├── src/App.tsx              # 主要畫面：顧客、KDS、店長後台
+│   └── package.json             # 前端 scripts 與依賴
+├── src/
+│   ├── index.ts                 # Elysia API 與 WebSocket
+│   ├── auth.ts                  # Better Auth 設定
+│   ├── runtime.ts               # 環境變數與 origin 設定
+│   └── db/
+│       ├── index.ts             # Drizzle + Neon 連線
+│       ├── schema.ts            # 資料表 schema
+│       └── seed.ts              # 範例資料重置腳本
+├── drizzle/                     # SQL migration 檔案
+├── scripts/                     # 維護與資料修復腳本
+├── drizzle.config.ts            # Drizzle Kit 設定
+└── package.json                 # 後端依賴
+```
 
 ## 資料表
 
-目前 schema 共 8 張資料表。
+主要業務資料表：
 
-- 業務資料表 4 張：`menu_items`、`orders`、`order_items`、`cart_items`
-- 認證資料表 3 張：`user`、`session`、`account`
-- 驗證資料表 1 張：`verification`
+- `menu_items`：菜單商品資料，包含名稱、價格、分類、描述、圖片網址、上下架狀態。
+- `cart_items`：顧客購物車內容。
+- `orders`：訂單主檔，包含使用者、總金額、狀態與建立時間。
+- `order_items`：訂單明細，包含商品數量與下單當下的商品快照。
 
-如果以功能分類來看，可視為：
+Better Auth 資料表：
 
-- 點餐核心資料：`menu_items`、`orders`、`order_items`、`cart_items`
-- Better Auth 自動管理：`user`、`session`、`account`、`verification`
+- `user`
+- `session`
+- `account`
+- `verification`
 
-## API 概覽
+## 商品分類
 
-### 自訂 HTTP API
+目前系統固定使用四種商品分類：
 
-目前後端自訂了 15 個 HTTP API。
+- `麵食`
+- `中式餐點`
+- `西式餐點`
+- `飲品`
 
-| 方法 | 路徑 | 說明 |
+店長後台的菜單新增與編輯會使用下拉選單限制分類；後端 API 也會驗證分類，資料庫 migration 會補上 `menu_items_category_check` constraint。
+
+## API 總覽
+
+### Public / Auth
+
+| Method | Path | 說明 |
 | --- | --- | --- |
-| `GET` | `/health` | 健康檢查 |
+| `GET` | `/health` | 後端健康檢查 |
 | `GET` | `/api/auth/access` | 取得目前登入者角色與權限 |
-| `GET` | `/api/menu` | 取得可販售菜單 |
-| `GET` | `/api/cart` | 取得購物車 |
-| `POST` | `/api/cart/items` | 加入購物車項目 |
-| `PUT` | `/api/cart/items/:menuItemId` | 更新購物車數量 |
-| `DELETE` | `/api/cart/items/:menuItemId` | 刪除購物車項目 |
+| `GET` | `/api/menu` | 取得顧客可購買菜單 |
+| `ALL` | `/api/auth`、`/api/auth/*` | Better Auth 相關路由 |
+
+### Cart / Orders
+
+| Method | Path | 說明 |
+| --- | --- | --- |
+| `GET` | `/api/cart` | 取得目前使用者購物車 |
+| `POST` | `/api/cart/items` | 加入購物車或增加數量 |
+| `PUT` | `/api/cart/items/:menuItemId` | 更新購物車商品數量 |
+| `DELETE` | `/api/cart/items/:menuItemId` | 移除購物車商品 |
 | `POST` | `/api/orders` | 建立訂單 |
-| `GET` | `/api/orders/history` | 取得歷史訂單 |
-| `GET` | `/api/kitchen/orders/active` | 取得廚房待處理訂單 |
+| `GET` | `/api/orders/history` | 取得顧客歷史訂單 |
+
+### Kitchen KDS
+
+| Method | Path | 說明 |
+| --- | --- | --- |
+| `GET` | `/api/kitchen/orders/active` | 取得待處理與製作中訂單 |
 | `PUT` | `/api/kitchen/orders/:id/status` | 更新訂單狀態 |
-| `GET` | `/api/admin/revenue` | 取得每日營收報表 |
+
+### Manager Admin
+
+| Method | Path | 說明 |
+| --- | --- | --- |
+| `GET` | `/api/admin/revenue?date=YYYY-MM-DD` | 取得指定日期的營收、分類商品銷售與訂單明細 |
 | `GET` | `/api/admin/menu` | 取得完整菜單 |
-| `POST` | `/api/admin/menu` | 新增菜單 |
-| `PUT` | `/api/admin/menu/:id` | 編輯菜單 |
+| `POST` | `/api/admin/menu` | 新增菜單商品 |
+| `PUT` | `/api/admin/menu/:id` | 編輯菜單商品或上下架 |
 
-### WebSocket API
+### WebSocket
 
-目前有 2 個 WebSocket 頻道。
+| Path | 說明 |
+| --- | --- |
+| `/ws/orders` | 推送顧客訂單狀態更新 |
+| `/ws/kitchen` | 推送 KDS 新訂單通知 |
 
-- `/ws/orders`：推送顧客訂單狀態更新
-- `/ws/kitchen`：推送廚房新訂單廣播
+## 權限設定
 
-### Better Auth 路由
+權限透過環境變數中的 email 白名單控制：
 
-除了上述自訂 API，系統還透過 Better Auth 提供一組認證相關路由，掛載在：
+- `STAFF_EMAILS`：可使用 KDS。
+- `MANAGER_EMAILS`：可使用 KDS 與店長後台。
 
-- `/api/auth`
-- `/api/auth/*`
+多個 email 使用逗號分隔：
 
-這些路由包含：
+```env
+STAFF_EMAILS=staff@example.com,kitchen@example.com
+MANAGER_EMAILS=owner@example.com
+```
 
-- 取得 session
-- Google 社群登入
-- 登出
-- OAuth callback
+## 環境需求
 
-## 角色權限
+- Bun
+- Node.js / npm
+- Neon PostgreSQL 或相容 PostgreSQL
+- Google OAuth Client
 
-- `customer`：一般顧客，可瀏覽菜單、購物車、送單、查歷史訂單
-- `staff`：廚房人員，可使用 KDS
-- `manager`：管理者，可使用 KDS 與後台管理功能
+## 安裝
 
-角色判斷依據：
+後端依賴：
 
-- `STAFF_EMAILS`
-- `MANAGER_EMAILS`
-
-## 開發環境需求
-
-- `Bun`
-- `Node.js`：前端 Vite 建議安裝
-- `PostgreSQL` 或 `Neon`
-- `Google OAuth Client`
-
-## 安裝與啟動
-
-### 1. 安裝後端依賴
-
-```bash
+```powershell
+cd "C:\Users\wendy\Desktop\早餐店 final_project"
 bun install
 ```
 
-### 2. 安裝前端依賴
+前端依賴：
 
-```bash
-cd frontend
+```powershell
+cd "C:\Users\wendy\Desktop\早餐店 final_project\frontend"
 npm install
 ```
 
-### 3. 設定環境變數
+## 環境變數
 
-後端 `.env`
+後端 `.env`：
 
 ```env
-DATABASE_URL=
+PORT=3000
+HOST=localhost
+DATABASE_URL=postgresql://...
 BETTER_AUTH_URL=http://localhost:3000
 FRONTEND_URL=http://localhost:5173
 API_ALLOWED_ORIGIN=http://localhost:5173
-TRUSTED_ORIGINS=
+TRUSTED_ORIGINS=http://localhost:5173
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 BETTER_AUTH_SECRET=
-STAFF_EMAILS=
-MANAGER_EMAILS=
+STAFF_EMAILS=staff@example.com
+MANAGER_EMAILS=manager@example.com
 ```
 
-前端 `frontend/.env`
+前端 `frontend/.env`：
 
 ```env
 VITE_API_BASE_URL=http://localhost:3000
 ```
 
-### 4. 啟動後端
+## 資料庫設定
 
-```bash
-bun run src/index.ts
+### 套用商品分類 constraint
+
+目前專案的 `drizzle/` 目錄沒有 Drizzle Kit 的 `meta/_journal.json`，因此不要用 `npx drizzle-kit migrate` 套這次分類修正。請使用專案提供的 Neon HTTP 腳本：
+
+```powershell
+cd "C:\Users\wendy\Desktop\早餐店 final_project"
+node scripts\apply_menu_category_constraints.js
 ```
 
-或使用監看模式：
+也可以用 Bun 執行：
 
-```bash
-bun --watch src/index.ts
+```powershell
+bun scripts\apply_menu_category_constraints.js
 ```
 
-### 5. 啟動前端
+這個腳本會：
 
-```bash
-cd frontend
+- 將舊分類轉換成四種固定分類。
+- 移除既有 `menu_items_category_check` constraint。
+- 重新建立只允許四種分類的資料庫 constraint。
+- 印出目前 `menu_items` 的分類數量。
+
+### Seed 注意事項
+
+`src/db/seed.ts` 會清空以下資料表後重建範例資料：
+
+- `cart_items`
+- `order_items`
+- `orders`
+- `menu_items`
+
+不要在正式資料庫或有重要訂單資料的資料庫上執行 seed，否則歷史訂單與營收資料會被刪除。
+
+如需重置本機測試資料：
+
+```powershell
+cd "C:\Users\wendy\Desktop\早餐店 final_project"
+bun run src\db\seed.ts
+```
+
+## 本機開發
+
+啟動後端：
+
+```powershell
+cd "C:\Users\wendy\Desktop\早餐店 final_project"
+bun run src\index.ts
+```
+
+啟動前端：
+
+```powershell
+cd "C:\Users\wendy\Desktop\早餐店 final_project\frontend"
 npm run dev
 ```
 
-## 部署重點
+預設網址：
 
-### Render 前端環境變數
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:3000`
+- Swagger Docs: `http://localhost:3000/docs`
+
+## 檢查與建置
+
+後端 TypeScript 檢查：
+
+```powershell
+cd "C:\Users\wendy\Desktop\早餐店 final_project"
+cmd /c .\node_modules\.bin\tsc
+```
+
+前端 TypeScript 檢查：
+
+```powershell
+cd "C:\Users\wendy\Desktop\早餐店 final_project\frontend"
+cmd /c .\node_modules\.bin\tsc -b
+```
+
+前端正式 build：
+
+```powershell
+cd "C:\Users\wendy\Desktop\早餐店 final_project\frontend"
+npm run build
+```
+
+## Render 部署設定
+
+### 前端服務
+
+- Root Directory: `frontend`
+- Build Command: `npm install && npm run build`
+- Publish Directory: `dist`
+
+前端環境變數：
 
 ```env
 VITE_API_BASE_URL=https://your-backend.onrender.com
 ```
 
-### Render 後端環境變數
+### 後端服務
+
+- Runtime: Bun 或 Node/Bun 相容環境
+- Start Command: `bun run src/index.ts`
+
+後端環境變數：
 
 ```env
-DATABASE_URL=
+DATABASE_URL=postgresql://...
 BETTER_AUTH_URL=https://your-backend.onrender.com
 FRONTEND_URL=https://your-frontend.onrender.com
 API_ALLOWED_ORIGIN=https://your-frontend.onrender.com
@@ -231,28 +313,34 @@ MANAGER_EMAILS=
 
 Authorized JavaScript origins：
 
-- `http://localhost:5173`
-- `https://your-frontend.onrender.com`
+```text
+http://localhost:5173
+https://your-frontend.onrender.com
+```
 
 Authorized redirect URIs：
 
-- `http://localhost:3000/api/auth/callback/google`
-- `https://your-backend.onrender.com/api/auth/callback/google`
-
-## API 文件
-
-後端啟動後可透過 Swagger 頁面查看文件：
-
 ```text
-http://localhost:3000/docs
+http://localhost:3000/api/auth/callback/google
+https://your-backend.onrender.com/api/auth/callback/google
 ```
 
-## 專案特色總結
+## 常見問題
 
-- 前後端分離架構
-- Google OAuth 登入
-- 顧客 / 廚房 / 老闆三種角色介面
-- 購物車與訂單流程完整
-- WebSocket 即時更新
-- 可部署於 Render
-- 使用 PostgreSQL 持久化資料
+### 店長後台單日業績沒有資料
+
+先確認該日期是否有訂單。若執行過 `bun run src/db/seed.ts`，`orders` 與 `order_items` 會被清空，歷史營收無法從目前資料庫還原。
+
+### 商品分類全部跑到同一類
+
+確認已執行：
+
+```powershell
+node scripts\apply_menu_category_constraints.js
+```
+
+並到店長後台檢查每個商品的分類是否已設定為四種固定分類之一。
+
+### `drizzle-kit migrate` 顯示 Neon websocket warning
+
+這個專案目前使用 Neon HTTP client 連線。分類 constraint 請用 `scripts/apply_menu_category_constraints.js`，不要用 `npx drizzle-kit migrate` 套這次手寫 SQL。
